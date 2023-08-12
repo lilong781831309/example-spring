@@ -10,8 +10,8 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.cache.RedisCacheWriter;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.RedisSerializer;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -22,51 +22,49 @@ import java.util.Map;
 public class CacheManagerConfig {
 
     @Autowired
-    private CacheConfig cacheConfig;
+    private CacheProperties cacheProperties;
 
     @Autowired
-    private Jackson2JsonRedisSerializer jackson2JsonRedisSerializer;
+    private RedisSerializer redisSerializer;
+
+    @Bean
+    RedisSerializationContext.SerializationPair<Object> serializationPair() {
+        return RedisSerializationContext.SerializationPair.fromSerializer(redisSerializer);
+    }
 
     @Bean
     public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-        RedisCacheWriter redisCacheWriter = RedisCacheWriter.nonLockingRedisCacheWriter(connectionFactory);
-
-        //默认过期时间
-        Long defaultTtl = cacheConfig.getDefaultTtl();
-        //自定义过期时间
-        Map<String, Long> customTtls = cacheConfig.getCustomTtls();
-        //设置默认过期时间
-        RedisCacheConfiguration defaultCacheConfigure = getCacheConfigure(Duration.ofSeconds(defaultTtl));
-        //设置自定义过期时间
-        Map<String, RedisCacheConfiguration> cacheConfigurationMap = new HashMap<>();
-        if (customTtls != null) {
-            customTtls.forEach((cacheName, ttl) -> {
-                if (ttl != null && ttl > 0) {
-                    cacheConfigurationMap.put(cacheName, getCacheConfigure(Duration.ofSeconds(ttl)));
-                }
-            });
-        }
-
-        return new RedisCacheManager(redisCacheWriter, defaultCacheConfigure, cacheConfigurationMap);
+        RedisCacheManager redisCacheManager = new RedisCacheManager(
+                RedisCacheWriter.nonLockingRedisCacheWriter(connectionFactory),
+                getDefaultCacheConfigure(),
+                getCacheConfigureMap());
+        redisCacheManager.setTransactionAware(true);
+        return redisCacheManager;
     }
 
+    private RedisCacheConfiguration getDefaultCacheConfigure() {
+        return getCacheConfigure(cacheProperties.getDefaultTtl());
+    }
 
-    private RedisCacheConfiguration getCacheConfigure(Duration duration) {
+    private Map<String, RedisCacheConfiguration> getCacheConfigureMap() {
+        Map<String, RedisCacheConfiguration> cacheConfigurationMap = new HashMap<>();
+        Map<String, Long> customTtls = cacheProperties.getCustomTtls();
+        if (customTtls != null) {
+            customTtls.forEach((cacheName, ttl) -> cacheConfigurationMap.put(cacheName, getCacheConfigure(ttl == null ? -1 : ttl)));
+        }
+        return cacheConfigurationMap;
+    }
+
+    private RedisCacheConfiguration getCacheConfigure(long ttl) {
         return RedisCacheConfiguration.defaultCacheConfig()
-                .entryTtl(duration)
+                .entryTtl(Duration.ofSeconds(ttl))
                 .serializeValuesWith(serializationPair())
                 //.disableCachingNullValues()
                 .computePrefixWith(cacheKeyPrefix());
     }
 
-    @Bean
-    RedisSerializationContext.SerializationPair<Object> serializationPair() {
-        return RedisSerializationContext.SerializationPair.fromSerializer(jackson2JsonRedisSerializer);
-    }
-
-    @Bean
-    CacheKeyPrefix cacheKeyPrefix() {
-        return cacheName -> cacheConfig.getPrefix() + ":" + cacheName + ":";
+    private CacheKeyPrefix cacheKeyPrefix() {
+        return cacheName -> cacheProperties.getPrefix() + ":" + cacheName + ":";
     }
 
 }

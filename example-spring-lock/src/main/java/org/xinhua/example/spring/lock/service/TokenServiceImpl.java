@@ -5,7 +5,6 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.integration.support.locks.LockRegistry;
 import org.springframework.stereotype.Service;
 
-import java.util.Date;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
@@ -48,12 +47,9 @@ public class TokenServiceImpl implements TokenService {
     }
 
     private void cacheToken(AccessToken accessToken) {
-        long expires_in = accessToken.getExpires_in();
         //一般token为一小时或两小时有效,如果有上传下载等长时间任务,提前5分钟失效
-        long expires_at = System.currentTimeMillis() + expires_in - 5 * 60 * 1000L;
-        redisTemplate.delete("tokenKey");
-        redisTemplate.boundValueOps("tokenKey").set(accessToken);
-        redisTemplate.boundValueOps("tokenKey").expireAt(new Date(expires_at));
+        long expiresIn = accessToken.getExpires_in() - 5 * 60 * 1000L;
+        redisTemplate.opsForValue().set("tokenKey", accessToken, expiresIn, TimeUnit.SECONDS);
     }
 
     @Override
